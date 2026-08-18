@@ -1,0 +1,1 @@
+Thin controllers per resource, e.g. MeetingController, TaskController. Delegate all logic to app/Services.
