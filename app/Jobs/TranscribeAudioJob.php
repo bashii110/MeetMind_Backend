@@ -16,10 +16,12 @@ class TranscribeAudioJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
-    public string $queue = 'transcription'; // ARCHITECTURE.md 3.5
+    public int $tries = 2;
+    // public string $queue = 'transcription'; // ARCHITECTURE.md 3.5
 
-    public function __construct(public readonly AudioFile $audioFile) {}
+    public function __construct(public readonly AudioFile $audioFile){
+    $this->onQueue('transcription');
+    }       
 
     /**
      * @return array<int>
@@ -44,14 +46,14 @@ class TranscribeAudioJob implements ShouldQueue
 
         $this->audioFile->update(['status' => AudioFileStatus::Transcribed->value]);
 
-        GenerateSummaryJob::dispatch($transcript);
+        GenerateSummaryJob::dispatch($transcript)->onQueue('ai');
     }
 
     private function dispatchNext(): void
     {
         $transcript = $this->audioFile->transcript;
         if ($transcript && ! $transcript->summary) {
-            GenerateSummaryJob::dispatch($transcript);
+            GenerateSummaryJob::dispatch($transcript)->onQueue('ai');
         }
     }
 

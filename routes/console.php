@@ -14,3 +14,9 @@ Artisan::command('inspire', function () {
 // patterns are known. Requires `php artisan schedule:work` (dev) or a
 // system cron entry calling `php artisan schedule:run` every minute (prod).
 Schedule::command('tasks:send-reminders')->hourly();
+
+// FR-9.1 / PHASES.md Phase 6: meeting start times are far more
+// time-sensitive than day-scale task deadlines, so this runs on a much
+// tighter cadence — see MeetingRepository::dueForReminder for the
+// "starts within the next hour" window this needs to catch reliably.
+Schedule::command('meetings:send-reminders')->everyFifteenMinutes();

@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Repositories\Contracts\ActivityLogRepositoryInterface;
 use App\Repositories\Contracts\AppNotificationRepositoryInterface;
 use App\Repositories\Contracts\AudioFileRepositoryInterface;
+use App\Repositories\Contracts\DeviceTokenRepositoryInterface;
 use App\Repositories\Contracts\MeetingRepositoryInterface;
 use App\Repositories\Contracts\SummaryRepositoryInterface;
 use App\Repositories\Contracts\TagRepositoryInterface;
@@ -13,9 +15,12 @@ use App\Repositories\Contracts\TaskCommentRepositoryInterface;
 use App\Repositories\Contracts\TaskRepositoryInterface;
 use App\Repositories\Contracts\TranscriptRepositoryInterface;
 use App\Repositories\Contracts\UserRepositoryInterface;
+use App\Repositories\Contracts\WorkspaceFileRepositoryInterface;
 use App\Repositories\Contracts\WorkspaceRepositoryInterface;
+use App\Repositories\Eloquent\ActivityLogRepository;
 use App\Repositories\Eloquent\AppNotificationRepository;
 use App\Repositories\Eloquent\AudioFileRepository;
+use App\Repositories\Eloquent\DeviceTokenRepository;
 use App\Repositories\Eloquent\MeetingRepository;
 use App\Repositories\Eloquent\SummaryRepository;
 use App\Repositories\Eloquent\TagRepository;
@@ -25,12 +30,12 @@ use App\Repositories\Eloquent\TaskCommentRepository;
 use App\Repositories\Eloquent\TaskRepository;
 use App\Repositories\Eloquent\TranscriptRepository;
 use App\Repositories\Eloquent\UserRepository;
+use App\Repositories\Eloquent\WorkspaceFileRepository;
 use App\Repositories\Eloquent\WorkspaceRepository;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Http\Request;
-
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -59,16 +64,19 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(TaskRepositoryInterface::class, TaskRepository::class);
         $this->app->bind(TaskCommentRepositoryInterface::class, TaskCommentRepository::class);
         $this->app->bind(TaskAttachmentRepositoryInterface::class, TaskAttachmentRepository::class);
+        $this->app->bind(DeviceTokenRepositoryInterface::class, DeviceTokenRepository::class);
+        $this->app->bind(ActivityLogRepositoryInterface::class, ActivityLogRepository::class);
+        $this->app->bind(WorkspaceFileRepositoryInterface::class, WorkspaceFileRepository::class);
     }
 
     public function boot(): void
-{
-    RateLimiter::for('api', function (Request $request) {
-        return Limit::perMinute(60)->by($request->ip());
-    });
+    {
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(60)->by($request->ip());
+        });
 
-    RateLimiter::for('auth', function (Request $request) {
-        return Limit::perMinute(10)->by($request->ip());
-    });
-}
+        RateLimiter::for('auth', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
+    }
 }

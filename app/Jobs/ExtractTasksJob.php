@@ -16,8 +16,7 @@ class ExtractTasksJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
-    public string $queue = 'ai';
+    public int $tries = 2;
 
     public function __construct(public readonly Transcript $transcript) {}
 
@@ -38,9 +37,10 @@ class ExtractTasksJob implements ShouldQueue
             $summaryService->extractTasks($meeting, $this->transcript);
         }
 
-        // "Summary + Task suggestions saved -> status = summarized" per
-        // ARCHITECTURE.md 3.4 — this is the pipeline's terminal success state.
-        $this->transcript->audioFile?->update(['status' => AudioFileStatus::Summarized->value]);
+        // Summary + Task suggestions saved -> status = summarized.
+        $this->transcript->audioFile?->update([
+            'status' => AudioFileStatus::Summarized->value
+        ]);
     }
 
     public function failed(Throwable $exception): void

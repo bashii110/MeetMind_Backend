@@ -42,6 +42,18 @@ return [
         'chat_model' => env('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
     ],
 
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'transcribe_model' => env(
+        'GEMINI_TRANSCRIBE_MODEL',
+        'gemini-2.5-flash'
+        ),
+        'chat_model' => env(
+        'GEMINI_CHAT_MODEL',
+        'gemini-2.5-flash'
+        ),
+    ],
+
     'firebase' => [
         'project_id' => env('FIREBASE_PROJECT_ID'),
         'credentials' => env('FIREBASE_CREDENTIALS', storage_path('app/firebase/service-account.json')),

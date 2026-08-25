@@ -2,6 +2,9 @@
 
 use App\Http\Controllers\Api\V1\Auth\AuthController;
 use App\Http\Controllers\Api\V1\AudioFileController;
+use App\Http\Controllers\Api\V1\CalendarController;
+use App\Http\Controllers\Api\V1\DepartmentController;
+use App\Http\Controllers\Api\V1\DeviceTokenController;
 use App\Http\Controllers\Api\V1\MeetingAiController;
 use App\Http\Controllers\Api\V1\MeetingController;
 use App\Http\Controllers\Api\V1\NotificationController;
@@ -10,6 +13,7 @@ use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\TaskCandidateController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\WorkspaceController;
+use App\Http\Controllers\Api\V1\WorkspaceFileController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -55,7 +59,22 @@ Route::prefix('v1')->group(function () {
         // POST (not PUT/PATCH) because avatar upload needs multipart/form-data,
         // which PHP doesn't parse for PUT/PATCH without extra middleware.
 
-        Route::get('/workspaces', [WorkspaceController::class, 'index'])->name('api.v1.workspaces.index');
+        // Phase 7 — full workspace CRUD, replacing the read-only index
+        // that stood in until team management existed.
+        Route::apiResource('workspaces', WorkspaceController::class)->names('api.v1.workspaces');
+        Route::post('/workspaces/{workspace}/members', [WorkspaceController::class, 'inviteMember'])->name('api.v1.workspaces.members.store');
+        Route::patch('/workspaces/{workspace}/members/{user}', [WorkspaceController::class, 'updateMember'])->name('api.v1.workspaces.members.update');
+        Route::delete('/workspaces/{workspace}/members/{user}', [WorkspaceController::class, 'removeMember'])->name('api.v1.workspaces.members.destroy');
+        Route::post('/workspaces/{workspace}/leave', [WorkspaceController::class, 'leave'])->name('api.v1.workspaces.leave');
+        Route::get('/workspaces/{workspace}/activity', [WorkspaceController::class, 'activity'])->name('api.v1.workspaces.activity');
+
+        Route::get('/workspaces/{workspace}/departments', [DepartmentController::class, 'index'])->name('api.v1.departments.index');
+        Route::post('/workspaces/{workspace}/departments', [DepartmentController::class, 'store'])->name('api.v1.departments.store');
+        Route::delete('/workspaces/{workspace}/departments/{department}', [DepartmentController::class, 'destroy'])->name('api.v1.departments.destroy');
+
+        Route::get('/workspaces/{workspace}/files', [WorkspaceFileController::class, 'index'])->name('api.v1.workspace-files.index');
+        Route::post('/workspaces/{workspace}/files', [WorkspaceFileController::class, 'store'])->name('api.v1.workspace-files.store');
+        Route::delete('/workspaces/{workspace}/files/{file}', [WorkspaceFileController::class, 'destroy'])->name('api.v1.workspace-files.destroy');
 
         Route::apiResource('meetings', MeetingController::class)->names('api.v1.meetings');
         Route::patch('/meetings/{meeting}/status', [MeetingController::class, 'updateStatus'])->name('api.v1.meetings.status');
@@ -87,5 +106,11 @@ Route::prefix('v1')->group(function () {
         Route::delete('/tasks/{task}/comments/{comment}', [TaskController::class, 'destroyComment'])->name('api.v1.tasks.comments.destroy');
         Route::post('/tasks/{task}/attachments', [TaskController::class, 'storeAttachment'])->name('api.v1.tasks.attachments.store');
         Route::delete('/tasks/{task}/attachments/{attachment}', [TaskController::class, 'destroyAttachment'])->name('api.v1.tasks.attachments.destroy');
+
+        // Phase 6 — FCM push registration and calendar aggregation.
+        Route::post('/device-tokens', [DeviceTokenController::class, 'store'])->name('api.v1.device-tokens.store');
+        Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy'])->name('api.v1.device-tokens.destroy');
+
+        Route::get('/calendar', [CalendarController::class, 'index'])->name('api.v1.calendar.index');
     });
 });

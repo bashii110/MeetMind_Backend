@@ -2,8 +2,10 @@
 
 namespace App\Services;
 
+use App\Enums\ActivityAction;
 use App\Enums\TaskCandidateStatus;
 use App\Enums\TaskStatus;
+use App\Events\CommentMentioned;
 use App\Events\TaskAssigned;
 use App\Events\TaskCompleted;
 use App\Models\Task;
@@ -25,6 +27,7 @@ class TaskService
         private readonly TaskRepositoryInterface $tasks,
         private readonly TaskCommentRepositoryInterface $comments,
         private readonly TaskAttachmentRepositoryInterface $attachments,
+        private readonly ActivityLogService $activity,
     ) {}
 
     public function listForUser(User $user, array $filters = [], int $perPage = 20): LengthAwarePaginator
@@ -50,6 +53,10 @@ class TaskService
             event(new TaskAssigned($task, $creator));
         }
 
+        $this->activity->log($workspace, $creator, ActivityAction::TaskCreated, $task, [
+            'task_title' => $task->title,
+        ]);
+
         return $task->fresh(['assignee', 'creator']);
     }
 
@@ -69,13 +76,18 @@ class TaskService
         $this->tasks->delete($task);
     }
 
-    public function updateStatus(Task $task, TaskStatus $status): Task
+    public function updateStatus(Task $task, TaskStatus $status, User $actor): Task
     {
         $task = $this->tasks->update($task, ['status' => $status->value]);
 
         if ($status === TaskStatus::Completed) {
             event(new TaskCompleted($task));
         }
+
+        $this->activity->log($task->workspace, $actor, ActivityAction::TaskStatusChanged, $task, [
+            'task_title' => $task->title,
+            'status' => $status->value,
+        ]);
 
         return $task;
     }
@@ -95,18 +107,46 @@ class TaskService
 
         if ($assignee) {
             event(new TaskAssigned($task, $assignedBy));
+
+            $this->activity->log($task->workspace, $assignedBy, ActivityAction::TaskAssigned, $task, [
+                'task_title' => $task->title,
+                'assignee_name' => $assignee->name,
+            ]);
         }
 
         return $task;
     }
 
-    public function addComment(Task $task, User $author, string $comment): TaskComment
+    /**
+     * @param array<int> $mentionedUserIds — user IDs the frontend's
+     *   @mention autocomplete resolved while composing the comment.
+     *   Deliberately not parsed out of the comment text server-side: the
+     *   autocomplete UI already knows exactly which user was selected, so
+     *   trusting that is far more reliable than re-detecting "@Name"
+     *   substrings against a member list that may contain ambiguous or
+     *   partial name matches. StoreTaskCommentRequest validates every ID
+     *   is a real member of this task's workspace.
+     */
+    public function addComment(Task $task, User $author, string $comment, array $mentionedUserIds = []): TaskComment
     {
-        return $this->comments->create([
+        $taskComment = $this->comments->create([
             'task_id' => $task->id,
             'user_id' => $author->id,
             'comment' => $comment,
         ]);
+
+        $mentioned = User::query()->whereIn('id', array_unique($mentionedUserIds))->get();
+
+        foreach ($mentioned as $mentionedUser) {
+            event(new CommentMentioned($task, $taskComment, $mentionedUser, $author));
+
+            $this->activity->log($task->workspace, $author, ActivityAction::CommentMention, $taskComment, [
+                'task_title' => $task->title,
+                'mentioned_name' => $mentionedUser->name,
+            ]);
+        }
+
+        return $taskComment;
     }
 
     public function deleteComment(TaskComment $comment): void

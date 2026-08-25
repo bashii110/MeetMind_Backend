@@ -18,6 +18,9 @@ class WorkspaceResource extends JsonResource
                 $this->pivot !== null,
                 fn () => $this->pivot?->role,
             ),
+            'member_count' => $this->whenCounted('members'),
+            'members' => WorkspaceMemberResource::collection($this->whenLoaded('members')),
+            'departments' => DepartmentResource::collection($this->whenLoaded('departments')),
         ];
     }
 }

@@ -22,8 +22,14 @@ class Workspace extends Model
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'workspace_members')
-            ->withPivot(['role', 'permissions'])
+            ->withPivot(['role', 'permissions', 'department_id'])
             ->withTimestamps();
+    }
+
+    /** Direct access to the pivot rows themselves — handy for admin-side queries. */
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(WorkspaceMember::class);
     }
 
     public function meetings(): HasMany
@@ -39,5 +45,20 @@ class Workspace extends Model
     public function tasks(): HasMany
     {
         return $this->hasMany(Task::class);
+    }
+
+    public function activityLogs(): HasMany
+    {
+        return $this->hasMany(ActivityLog::class)->latest();
+    }
+
+    public function files(): HasMany
+    {
+        return $this->hasMany(WorkspaceFile::class)->latest();
+    }
+
+    public function departments(): HasMany
+    {
+        return $this->hasMany(Department::class);
     }
 }

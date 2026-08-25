@@ -89,7 +89,11 @@ class MeetingController extends Controller
     {
         $this->authorize('update', $meeting);
 
-        $meeting = $this->meetings->changeStatus($meeting, MeetingStatus::from($request->string('status')->toString()));
+        $meeting = $this->meetings->changeStatus(
+            $meeting,
+            $request->user(),
+            MeetingStatus::from($request->string('status')->toString()),
+        );
 
         return $this->success(new MeetingResource($meeting), 'Meeting status updated.');
     }

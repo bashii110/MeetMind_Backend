@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ActivityAction;
 use App\Enums\MeetingStatus;
 use App\Enums\ParticipantInviteStatus;
 use App\Events\ParticipantInvited;
@@ -18,6 +19,7 @@ class MeetingService
     public function __construct(
         private readonly MeetingRepositoryInterface $meetings,
         private readonly TagRepositoryInterface $tags,
+        private readonly ActivityLogService $activity,
     ) {}
 
     public function listForUser(User $user, array $filters = [], int $perPage = 15): LengthAwarePaginator
@@ -52,6 +54,10 @@ class MeetingService
             $this->invite($meeting, $owner, $data['participant_emails']);
         }
 
+        $this->activity->log($workspace, $owner, ActivityAction::MeetingCreated, $meeting, [
+            'meeting_title' => $meeting->title,
+        ]);
+
         return $meeting->fresh(['owner', 'tags', 'participants.user']);
     }
 
@@ -78,7 +84,7 @@ class MeetingService
         $this->meetings->delete($meeting);
     }
 
-    public function changeStatus(Meeting $meeting, MeetingStatus $next): Meeting
+    public function changeStatus(Meeting $meeting, User $actor, MeetingStatus $next): Meeting
     {
         if (! $meeting->status->canTransitionTo($next)) {
             throw ValidationException::withMessages([
@@ -86,7 +92,16 @@ class MeetingService
             ]);
         }
 
-        return $this->meetings->update($meeting, ['status' => $next->value]);
+        $previous = $meeting->status;
+        $meeting = $this->meetings->update($meeting, ['status' => $next->value]);
+
+        $this->activity->log($meeting->workspace, $actor, ActivityAction::MeetingStatusChanged, $meeting, [
+            'meeting_title' => $meeting->title,
+            'from' => $previous->value,
+            'to' => $next->value,
+        ]);
+
+        return $meeting;
     }
 
     /**

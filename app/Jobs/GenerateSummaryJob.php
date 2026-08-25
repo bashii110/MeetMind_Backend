@@ -16,10 +16,12 @@ class GenerateSummaryJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
-    public string $queue = 'ai'; // ARCHITECTURE.md 3.5
+    public int $tries = 2;
 
-    public function __construct(public readonly Transcript $transcript) {}
+    public function __construct(public readonly Transcript $transcript)
+    {
+        $this->onQueue('ai');
+    }
 
     /**
      * @return array<int>
@@ -32,17 +34,26 @@ class GenerateSummaryJob implements ShouldQueue
     public function handle(MeetingSummaryService $summaryService): void
     {
         $audioFile = $this->transcript->audioFile;
-        $audioFile?->update(['status' => AudioFileStatus::Summarizing->value]);
+
+        $audioFile?->update([
+            'status' => AudioFileStatus::Summarizing->value,
+        ]);
 
         $meeting = $this->transcript->meeting;
 
-        // Idempotent: skip regenerating if a retried dispatch lands after
-        // a summary already exists for this transcript.
-        if (! $meeting->summary || $meeting->summary->transcript_id !== $this->transcript->id) {
-            $summaryService->generateSummary($meeting, $this->transcript);
+        // Idempotent: skip regenerating if a retried dispatch
+        // lands after a summary already exists.
+        if (
+            ! $meeting->summary ||
+            $meeting->summary->transcript_id !== $this->transcript->id
+        ) {
+            $summaryService->generateSummary(
+                $meeting,
+                $this->transcript
+            );
         }
 
-        ExtractTasksJob::dispatch($this->transcript);
+        ExtractTasksJob::dispatch($this->transcript)->onQueue('ai');
     }
 
     public function failed(Throwable $exception): void

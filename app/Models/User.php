@@ -132,4 +132,10 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return $this->hasMany(Task::class, 'created_by');
     }
+
+    /** Phase 6: FCM registration tokens for this user's devices. */
+    public function deviceTokens(): HasMany
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
 }

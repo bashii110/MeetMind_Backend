@@ -27,6 +27,7 @@ class Meeting extends Model
         'priority',
         'category',
         'status',
+        'last_reminder_sent_at',
     ];
 
     protected function casts(): array
@@ -35,6 +36,7 @@ class Meeting extends Model
             'date' => 'date',
             'priority' => MeetingPriority::class,
             'status' => MeetingStatus::class,
+            'last_reminder_sent_at' => 'datetime',
         ];
     }
 

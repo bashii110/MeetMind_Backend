@@ -46,25 +46,58 @@ class AudioUploadService
     /**
      * @return array{received_chunks: array<int>, total_chunks: int}
      */
-    public function storeChunk(AudioFile $audioFile, int $index, UploadedFile $chunk): array
-    {
-        if ($audioFile->total_chunks !== null && $index >= $audioFile->total_chunks) {
-            throw ValidationException::withMessages([
-                'chunk_index' => ["Chunk index {$index} is out of range (total_chunks={$audioFile->total_chunks})."],
-            ]);
-        }
+   public function storeChunk(AudioFile $audioFile, int $index, UploadedFile $chunk): array
+{
+    \Log::info('STORE CHUNK CALLED', [
+        'audio_file_id' => $audioFile->id,
+        'index' => $index,
+        'original_name' => $chunk->getClientOriginalName(),
+        'size' => $chunk->getSize(),
+        'tmp_path' => $chunk->getRealPath(),
+    ]);
 
-        Storage::disk('local')->putFileAs($this->chunkDir($audioFile), $chunk, (string) $index);
-
-        $received = $audioFile->received_chunks ?? [];
-        if (! in_array($index, $received, true)) {
-            $received[] = $index;
-            sort($received);
-            $audioFile->update(['received_chunks' => $received]);
-        }
-
-        return ['received_chunks' => $received, 'total_chunks' => (int) $audioFile->total_chunks];
+    if ($audioFile->total_chunks !== null && $index >= $audioFile->total_chunks) {
+        throw ValidationException::withMessages([
+            'chunk_index' => [
+                "Chunk index {$index} is out of range (total_chunks={$audioFile->total_chunks})."
+            ],
+        ]);
     }
+
+    $directory = $this->chunkDir($audioFile);
+
+    \Log::info('CHUNK DIRECTORY', [
+        'directory' => $directory,
+        'absolute_path' => Storage::disk('local')->path($directory),
+    ]);
+
+    $result = Storage::disk('local')->putFileAs(
+        $directory,
+        $chunk,
+        (string) $index
+    );
+
+    \Log::info('CHUNK SAVED', [
+        'result' => $result,
+        'exists' => Storage::disk('local')->exists($directory . '/' . $index),
+    ]);
+
+    $received = $audioFile->received_chunks ?? [];
+
+    if (!in_array($index, $received, true)) {
+        $received[] = $index;
+        sort($received);
+
+        $audioFile->update([
+            'received_chunks' => $received
+        ]);
+    }
+
+    return [
+        'received_chunks' => $received,
+        'total_chunks' => (int) $audioFile->total_chunks
+    ];
+}
 
     /**
      * Lets the client ask "what do you already have?" after a dropped

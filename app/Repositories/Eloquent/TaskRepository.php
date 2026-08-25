@@ -6,6 +6,7 @@ use App\Enums\TaskStatus;
 use App\Models\Task;
 use App\Models\User;
 use App\Repositories\Contracts\TaskRepositoryInterface;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -66,6 +67,18 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
                 $q->whereNull('last_reminder_sent_at')
                     ->orWhere('last_reminder_sent_at', '<', now()->subHours(24));
             })
+            ->get();
+    }
+
+    public function forUserWithDeadlineBetween(User $user, CarbonInterface $start, CarbonInterface $end): Collection
+    {
+        $workspaceIds = $user->workspaces()->pluck('workspaces.id');
+
+        return Task::query()
+            ->whereIn('workspace_id', $workspaceIds)
+            ->whereNotNull('deadline')
+            ->whereBetween('deadline', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
+            ->orderBy('deadline')
             ->get();
     }
 }

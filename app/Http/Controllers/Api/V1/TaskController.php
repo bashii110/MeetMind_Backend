@@ -94,7 +94,11 @@ class TaskController extends Controller
     {
         $this->authorize('update', $task);
 
-        $task = $this->tasks->updateStatus($task, TaskStatus::from($request->string('status')->toString()));
+        $task = $this->tasks->updateStatus(
+            $task,
+            TaskStatus::from($request->string('status')->toString()),
+            $request->user(),
+        );
 
         return $this->success(new TaskResource($task), 'Task status updated.');
     }
@@ -122,7 +126,12 @@ class TaskController extends Controller
     {
         $this->authorize('view', $task);
 
-        $comment = $this->tasks->addComment($task, $request->user(), $request->string('comment')->toString());
+        $comment = $this->tasks->addComment(
+            $task,
+            $request->user(),
+            $request->string('comment')->toString(),
+            $request->input('mentioned_user_ids', []),
+        );
         $comment->load('user');
 
         return $this->success(new TaskCommentResource($comment), 'Comment added.', 201);
