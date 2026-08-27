@@ -22,21 +22,28 @@ class DeviceTokenController extends Controller
     public function __construct(private readonly DeviceTokenRepositoryInterface $deviceTokens) {}
 
     public function store(RegisterDeviceTokenRequest $request): JsonResponse
-    {
-        $this->deviceTokens->upsertForUser(
-            $request->user(),
-            $request->string('token')->toString(),
-            $request->input('platform'),
-            $request->input('device_name'),
-        );
+{
+    $this->deviceTokens->upsertForUser(
+        $request->user(),
+        $request->string('token')->toString(),
+        $request->input('platform'),
+        $request->input('device_name'),
+    );
 
-        return $this->success(null, 'Device registered for push notifications.', 201);
-    }
+    return $this->success(
+        null,
+        'Device registered for push notifications.',
+        201
+    );
+} // required
 
-    public function destroy(UnregisterDeviceTokenRequest $request): JsonResponse
-    {
-        $this->deviceTokens->deleteByToken($request->user(), $request->string('token')->toString());
+public function destroy(UnregisterDeviceTokenRequest $request): JsonResponse
+{
+    $this->deviceTokens->deleteByToken(
+        $request->user(),
+        $request->string('token')->toString()
+    );
 
-        return $this->success(null, 'Device unregistered.');
-    }
+    return $this->success(null, 'Device unregistered.');
+}
 }

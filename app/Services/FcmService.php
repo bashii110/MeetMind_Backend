@@ -50,58 +50,91 @@ class FcmService
         }
     }
 
-    private function sendToToken(DeviceToken $deviceToken, string $title, string $body, array $data): void
-    {
-        $projectId = config('services.firebase.project_id');
+    private function sendToToken(
+    DeviceToken $deviceToken,
+    string $title,
+    string $body,
+    array $data
+): void {
+    $projectId = config('services.firebase.project_id');
 
-        if (! $projectId) {
-            Log::warning('FCM: FIREBASE_PROJECT_ID is not configured; skipping push send.');
+    if (! $projectId) {
+        Log::warning(
+            'FCM: FIREBASE_PROJECT_ID is not configured; skipping push send.'
+        );
 
-            return;
-        }
-
-        try {
-            $accessToken = $this->getAccessToken();
-        } catch (\Throwable $e) {
-            Log::error('FCM: could not obtain an access token.', ['error' => $e->getMessage()]);
-
-            return;
-        }
-
-        $response = Http::withToken($accessToken)
-            ->post("https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send", [
-                'message' => [
-                    'token' => $deviceToken->token,
-                    'notification' => [
-                        'title' => $title,
-                        'body' => $body,
-                    ],
-                    // FCM's data payload requires every value to be a string.
-                    'data' => array_map('strval', $data),
-                ],
-            ]);
-
-        if ($response->successful()) {
-            $deviceToken->forceFill(['last_used_at' => now()])->save();
-
-            return;
-        }
-
-        $errorStatus = $response->json('error.status');
-
-        if (in_array($errorStatus, ['NOT_FOUND', 'UNREGISTERED', 'INVALID_ARGUMENT'], true)) {
-            // Dead registration token — stop retrying it rather than fail
-            // forever on every future notification to this user.
-            $this->deviceTokens->forceDeleteByToken($deviceToken->token);
-
-            return;
-        }
-
-        Log::warning('FCM send failed.', [
-            'status' => $response->status(),
-            'body' => $response->json(),
-        ]);
+        return;
     }
+
+    try {
+        $accessToken = $this->getAccessToken();
+
+        $response = $this->sendRequest(
+            $projectId,
+            $deviceToken->token,
+            $title,
+            $body,
+            $data,
+            $accessToken
+        );
+
+        /*
+         * The cached OAuth token may have expired before the
+         * cache itself expired. If Google returns 401, clear
+         * the cached token and retry once with a fresh token.
+         */
+        if ($response->status() === 401) {
+            Log::warning(
+                'FCM access token expired. Refreshing and retrying.'
+            );
+
+            Cache::forget(self::CACHE_KEY);
+
+            $accessToken = $this->getAccessToken();
+
+            $response = $this->sendRequest(
+                $projectId,
+                $deviceToken->token,
+                $title,
+                $body,
+                $data,
+                $accessToken
+            );
+        }
+    } catch (\Throwable $e) {
+        Log::error('FCM send failed.', [
+            'error' => $e->getMessage(),
+        ]);
+
+        throw $e;
+    }
+
+    if ($response->successful()) {
+        $deviceToken->forceFill([
+            'last_used_at' => now(),
+        ])->save();
+
+        return;
+    }
+
+    $errorStatus = $response->json('error.status');
+
+    if (in_array(
+        $errorStatus,
+        ['NOT_FOUND', 'UNREGISTERED'],
+        true
+    )) {
+        $this->deviceTokens->forceDeleteByToken(
+            $deviceToken->token
+        );
+
+        return;
+    }
+
+    throw new RuntimeException(
+        "FCM send failed with HTTP {$response->status()}: {$response->body()}"
+    );
+}
 
     /**
      * Exchanges a self-signed JWT for a short-lived OAuth2 access token,
@@ -109,25 +142,59 @@ class FcmService
      * for 3600s per Google's spec).
      */
     private function getAccessToken(): string
-    {
-        return Cache::remember(self::CACHE_KEY, now()->addMinutes(50), function () {
+{
+    return Cache::remember(
+        self::CACHE_KEY,
+        now()->addMinutes(45),
+        function () {
             $credentials = $this->loadServiceAccount();
             $jwt = $this->buildSignedJwt($credentials);
 
             $response = Http::asForm()->post(self::TOKEN_URL, [
-                'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+                'grant_type' =>
+                    'urn:ietf:params:oauth:grant-type:jwt-bearer',
                 'assertion' => $jwt,
             ])->throw();
 
             $accessToken = $response->json('access_token');
 
             if (! is_string($accessToken) || $accessToken === '') {
-                throw new RuntimeException('Google token endpoint did not return an access_token.');
+                throw new RuntimeException(
+                    'Google token endpoint did not return an access_token.'
+                );
             }
 
             return $accessToken;
-        });
-    }
+        }
+    );
+}
+
+
+    private function sendRequest(
+    string $projectId,
+    string $deviceToken,
+    string $title,
+    string $body,
+    array $data,
+    string $accessToken
+) {
+    return Http::withToken($accessToken)
+        ->post(
+            "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send",
+            [
+                'message' => [
+                    'token' => $deviceToken,
+
+                    'notification' => [
+                        'title' => $title,
+                        'body' => $body,
+                    ],
+
+                    'data' => array_map('strval', $data),
+                ],
+            ]
+        );
+}
 
     /**
      * @return array{client_email: string, private_key: string}
@@ -159,42 +226,64 @@ class FcmService
      * @param array{client_email: string, private_key: string} $credentials
      */
     private function buildSignedJwt(array $credentials): string
-    {
-        $now = time();
+{
+    $now = time();
 
-        $header = ['alg' => 'RS256', 'typ' => 'JWT'];
-        $claims = [
-            'iss' => $credentials['client_email'],
-            'scope' => self::SCOPE,
-            'aud' => self::TOKEN_URL,
-            'iat' => $now,
-            'exp' => $now + 3600,
-        ];
+    $header = [
+        'alg' => 'RS256',
+        'typ' => 'JWT',
+    ];
 
-        $segments = [
-            $this->base64UrlEncode((string) json_encode($header, JSON_UNESCAPED_SLASHES)),
-            $this->base64UrlEncode((string) json_encode($claims, JSON_UNESCAPED_SLASHES)),
-        ];
+    $claims = [
+        'iss' => $credentials['client_email'],
+        'scope' => self::SCOPE,
+        'aud' => self::TOKEN_URL,
 
-        $signingInput = implode('.', $segments);
+        // Current server time.
+        'iat' => $now,
 
-        $privateKey = openssl_pkey_get_private($credentials['private_key']);
+        // Keep JWT lifetime safely below Google's 60-minute limit.
+        'exp' => $now + 1800,
+    ];
 
-        if ($privateKey === false) {
-            throw new RuntimeException('Could not parse the Firebase service account private key.');
-        }
+    $segments = [
+        $this->base64UrlEncode(
+            json_encode($header, JSON_UNESCAPED_SLASHES)
+        ),
+        $this->base64UrlEncode(
+            json_encode($claims, JSON_UNESCAPED_SLASHES)
+        ),
+    ];
 
-        $signature = '';
-        $signed = openssl_sign($signingInput, $signature, $privateKey, OPENSSL_ALGO_SHA256);
+    $signingInput = implode('.', $segments);
 
-        if (! $signed) {
-            throw new RuntimeException('Failed to RS256-sign the FCM service-account JWT.');
-        }
+    $privateKey = openssl_pkey_get_private(
+        $credentials['private_key']
+    );
 
-        $segments[] = $this->base64UrlEncode($signature);
-
-        return implode('.', $segments);
+    if ($privateKey === false) {
+        throw new RuntimeException(
+            'Could not parse the Firebase service account private key.'
+        );
     }
+
+    $signature = '';
+
+    if (! openssl_sign(
+        $signingInput,
+        $signature,
+        $privateKey,
+        OPENSSL_ALGO_SHA256
+    )) {
+        throw new RuntimeException(
+            'Failed to RS256-sign the FCM service-account JWT.'
+        );
+    }
+
+    $segments[] = $this->base64UrlEncode($signature);
+
+    return implode('.', $segments);
+}
 
     private function base64UrlEncode(string $data): string
     {

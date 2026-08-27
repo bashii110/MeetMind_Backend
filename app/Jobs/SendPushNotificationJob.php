@@ -25,16 +25,17 @@ class SendPushNotificationJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public string $queue = 'notifications';
 
     /**
      * @param  array<string, mixed>  $payload
      */
     public function __construct(
-        public readonly User $user,
-        public readonly NotificationType $type,
-        public readonly array $payload,
-    ) {}
+    public readonly User $user,
+    public readonly NotificationType $type,
+    public readonly array $payload,
+    ) {
+         $this->onQueue('notifications');
+    }
 
     /**
      * @return array<int>
