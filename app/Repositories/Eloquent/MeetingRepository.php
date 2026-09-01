@@ -19,57 +19,75 @@ class MeetingRepository extends BaseRepository implements MeetingRepositoryInter
         parent::__construct($model);
     }
 
-    public function forUser(User $user, array $filters = [], int $perPage = 15): LengthAwarePaginator
-    {
-        $workspaceIds = $user->workspaces()->pluck('workspaces.id');
+    public function forUser(
+    User $user,
+    array $filters = [],
+    int $perPage = 15
+): LengthAwarePaginator {
 
-        /** @var Builder $query */
-        $query = Meeting::query()
-            ->whereIn('workspace_id', $workspaceIds)
-            ->where(function (Builder $q) use ($user) {
-                $q->where('owner_id', $user->id)
-                    ->orWhereHas('participants', fn (Builder $p) => $p->where('user_id', $user->id));
-            })
-            ->with(['owner', 'tags', 'participants.user'])
-            ->withCount('participants');
+    /** @var Builder $query */
+    $query = Meeting::query()
+        ->where(function (Builder $q) use ($user) {
+            $q->where('owner_id', $user->id)
+                ->orWhereHas('participants', function (Builder $p) use ($user) {
+                    $p->where('user_id', $user->id)
+                        ->where('invite_status', 'accepted');
+                });
+        })
+        ->with(['owner', 'tags', 'participants.user'])
+        ->withCount('participants');
 
-        if (! empty($filters['status'])) {
-            $query->where('status', $filters['status']);
-        }
-
-        if (! empty($filters['category'])) {
-            $query->where('category', $filters['category']);
-        }
-
-        if (! empty($filters['tag'])) {
-            $query->whereHas('tags', fn (Builder $t) => $t->where('name', $filters['tag']));
-        }
-
-        if (! empty($filters['search'])) {
-            $search = $filters['search'];
-            $query->where(fn (Builder $q) => $q
-                ->where('title', 'like', "%{$search}%")
-                ->orWhere('description', 'like', "%{$search}%"));
-        }
-
-        return $query->orderByDesc('date')->orderByDesc('time')->paginate($perPage);
+    if (! empty($filters['status'])) {
+        $query->where('status', $filters['status']);
     }
 
-    public function forUserBetweenDates(User $user, CarbonInterface $start, CarbonInterface $end): Collection
-    {
-        $workspaceIds = $user->workspaces()->pluck('workspaces.id');
-
-        return Meeting::query()
-            ->whereIn('workspace_id', $workspaceIds)
-            ->where(function (Builder $q) use ($user) {
-                $q->where('owner_id', $user->id)
-                    ->orWhereHas('participants', fn (Builder $p) => $p->where('user_id', $user->id));
-            })
-            ->whereBetween('date', [$start->toDateString(), $end->toDateString()])
-            ->orderBy('date')
-            ->orderBy('time')
-            ->get();
+    if (! empty($filters['category'])) {
+        $query->where('category', $filters['category']);
     }
+
+    if (! empty($filters['tag'])) {
+        $query->whereHas(
+            'tags',
+            fn (Builder $t) => $t->where('name', $filters['tag'])
+        );
+    }
+
+    if (! empty($filters['search'])) {
+        $search = $filters['search'];
+
+        $query->where(function (Builder $q) use ($search) {
+            $q->where('title', 'like', "%{$search}%")
+                ->orWhere('description', 'like', "%{$search}%");
+        });
+    }
+
+    return $query
+        ->orderByDesc('date')
+        ->orderByDesc('time')
+        ->paginate($perPage);
+}
+
+   public function forUserBetweenDates(
+    User $user,
+    CarbonInterface $start,
+    CarbonInterface $end
+): Collection {
+    return Meeting::query()
+        ->where(function (Builder $q) use ($user) {
+            $q->where('owner_id', $user->id)
+                ->orWhereHas('participants', function (Builder $p) use ($user) {
+                    $p->where('user_id', $user->id)
+                        ->where('invite_status', 'accepted');
+                });
+        })
+        ->whereBetween('date', [
+            $start->toDateString(),
+            $end->toDateString(),
+        ])
+        ->orderBy('date')
+        ->orderBy('time')
+        ->get();
+}
 
     public function dueForReminder(): Collection
     {

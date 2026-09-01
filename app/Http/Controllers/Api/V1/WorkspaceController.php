@@ -52,13 +52,33 @@ class WorkspaceController extends Controller
     }
 
     public function show(Request $request, Workspace $workspace): JsonResponse
-    {
-        $this->authorize('view', $workspace);
+{
+    $this->authorize('view', $workspace);
 
-        $workspace->loadCount('members')->load(['members', 'departments']);
+    $workspace->loadCount(['members', 'departments'])
+        ->load([
+            'owner',
+            'members',
+            'departments',
+        ]);
 
-        return $this->success(new WorkspaceResource($workspace));
-    }
+    $myRole = $workspace->members()
+        ->where('users.id', $request->user()->id)
+        ->first()?->pivot?->role;
+
+    return $this->success(
+        new WorkspaceResource($workspace, $myRole)
+    );
+}
+    
+   public function members(Request $request, Workspace $workspace): JsonResponse
+{
+    $this->authorize('view', $workspace);
+
+    $members = $workspace->members()->get();
+
+    return $this->success($members);
+}
 
     public function update(UpdateWorkspaceRequest $request, Workspace $workspace): JsonResponse
     {

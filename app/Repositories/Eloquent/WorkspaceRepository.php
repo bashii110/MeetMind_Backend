@@ -15,7 +15,10 @@ class WorkspaceRepository extends BaseRepository implements WorkspaceRepositoryI
     }
 
     public function forUser(User $user): Collection
-    {
-        return $user->workspaces()->get();
-    }
+{
+    return $user->workspaces()
+        ->withCount(['members', 'departments'])
+        ->with('owner')
+        ->get();
+}
 }
