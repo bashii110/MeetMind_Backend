@@ -15,6 +15,10 @@ class StoreTaskRequest extends FormRequest
     {
         return [
             'workspace_id' => ['sometimes', 'integer', 'exists:workspaces,id'],
+            // Phase 10: client-generated UUID for offline-created tasks,
+            // so replaying this request from the outbox is idempotent —
+            // see TaskService::create().
+            'client_ref' => ['sometimes', 'nullable', 'uuid'],
             'meeting_id' => ['sometimes', 'nullable', 'integer', 'exists:meetings,id'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],

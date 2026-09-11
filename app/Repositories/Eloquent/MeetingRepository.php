@@ -5,6 +5,7 @@ namespace App\Repositories\Eloquent;
 use App\Enums\MeetingStatus;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Repositories\Contracts\MeetingRepositoryInterface;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -116,5 +117,17 @@ class MeetingRepository extends BaseRepository implements MeetingRepositoryInter
                 return $startsAt->betweenIncluded($now, $windowEnd);
             })
             ->values();
+    }
+
+    public function findByClientRef(Workspace $workspace, string $clientRef): ?Meeting
+    {
+        // withTrashed(): if the same client_ref is somehow replayed after
+        // the meeting was since (soft-)deleted, this still finds it
+        // rather than attempting a duplicate insert that would violate
+        // the (workspace_id, client_ref) unique index.
+        return Meeting::withTrashed()
+            ->where('workspace_id', $workspace->id)
+            ->where('client_ref', $clientRef)
+            ->first();
     }
 }

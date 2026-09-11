@@ -14,6 +14,10 @@ class UpdateTaskRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // Phase 10: see UpdateMeetingRequest's client_updated_at doc —
+            // identical mechanism, applied here since ARCHITECTURE.md 2.3
+            // calls out task edits by name for the "manual merge prompt".
+            'client_updated_at' => ['sometimes', 'nullable', 'date'],
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'priority' => ['sometimes', 'in:low,medium,high'],

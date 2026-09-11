@@ -10,14 +10,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Meeting extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'workspace_id',
         'owner_id',
+        // Phase 10: client-generated idempotency key for offline-created
+        // meetings replayed from the Flutter app's outbox — see
+        // MeetingService::create().
+        'client_ref',
         'title',
         'description',
         'date',

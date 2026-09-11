@@ -5,6 +5,7 @@ namespace App\Repositories\Eloquent;
 use App\Enums\TaskStatus;
 use App\Models\Task;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Repositories\Contracts\TaskRepositoryInterface;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -80,5 +81,14 @@ class TaskRepository extends BaseRepository implements TaskRepositoryInterface
             ->whereBetween('deadline', [$start->copy()->startOfDay(), $end->copy()->endOfDay()])
             ->orderBy('deadline')
             ->get();
+    }
+
+    public function findByClientRef(Workspace $workspace, string $clientRef): ?Task
+    {
+        // withTrashed(): see MeetingRepository::findByClientRef for why.
+        return Task::withTrashed()
+            ->where('workspace_id', $workspace->id)
+            ->where('client_ref', $clientRef)
+            ->first();
     }
 }

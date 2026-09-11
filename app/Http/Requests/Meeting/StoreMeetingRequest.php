@@ -15,6 +15,10 @@ class StoreMeetingRequest extends FormRequest
     {
         return [
             'workspace_id' => ['sometimes', 'integer', 'exists:workspaces,id'],
+            // Phase 10: client-generated UUID for offline-created
+            // meetings, so replaying this request from the outbox is
+            // idempotent — see MeetingService::create().
+            'client_ref' => ['sometimes', 'nullable', 'uuid'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'date' => ['required', 'date'],

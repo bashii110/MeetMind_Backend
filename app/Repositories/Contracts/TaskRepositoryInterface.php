@@ -2,7 +2,9 @@
 
 namespace App\Repositories\Contracts;
 
+use App\Models\Task;
 use App\Models\User;
+use App\Models\Workspace;
 use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -25,4 +27,12 @@ interface TaskRepositoryInterface extends RepositoryInterface
      * all the user's workspaces — backs the Calendar screen (FR-8.1/8.2).
      */
     public function forUserWithDeadlineBetween(User $user, CarbonInterface $start, CarbonInterface $end): Collection;
+
+    /**
+     * Phase 10: looks up a task by the client-generated idempotency key
+     * sent on creation, including soft-deleted rows — lets
+     * TaskService::create() detect a replayed offline-outbox "create"
+     * and return the existing record instead of duplicating it.
+     */
+    public function findByClientRef(Workspace $workspace, string $clientRef): ?Task;
 }

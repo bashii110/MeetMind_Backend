@@ -8,16 +8,21 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Task extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'meeting_id',
         'workspace_id',
         'created_by',
         'assigned_user_id',
+        // Phase 10: client-generated idempotency key for offline-created
+        // tasks replayed from the Flutter app's outbox — see
+        // TaskService::create().
+        'client_ref',
         'title',
         'description',
         'priority',

@@ -13,6 +13,9 @@ class MeetingResource extends JsonResource
         return [
             'id' => $this->id,
             'workspace_id' => $this->workspace_id,
+            // Phase 10: echoed back so the offline client can reconcile
+            // its local draft with the server-confirmed record after sync.
+            'client_ref' => $this->client_ref,
             'title' => $this->title,
             'description' => $this->description,
             'date' => $this->date?->toDateString(),

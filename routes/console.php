@@ -15,9 +15,17 @@ Artisan::command('inspire', function () {
 // system cron entry calling `php artisan schedule:run` every minute (prod).
 Schedule::command('tasks:send-reminders')->hourly();
 
-
 // FR-9.1 / PHASES.md Phase 6: meeting start times are far more
 // time-sensitive than day-scale task deadlines, so this runs on a much
 // tighter cadence — see MeetingRepository::dueForReminder for the
 // "starts within the next hour" window this needs to catch reliably.
 Schedule::command('meetings:send-reminders')->everyFifteenMinutes();
+
+// Phase 11 (NFR-4/NFR-5 token hygiene): AuthService::issueTokenPair sets
+// a real expires_at on both the access and refresh tokens it issues.
+// Sanctum's guard already rejects expired tokens on every request, so
+// this doesn't change auth behavior — it just stops the
+// personal_access_tokens table from growing forever with rows that can
+// never authenticate again anyway. Ships as a built-in Sanctum command,
+// no custom code needed.
+Schedule::command('sanctum:prune-expired --hours=24')->daily();

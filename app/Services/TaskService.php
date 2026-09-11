@@ -8,6 +8,8 @@ use App\Enums\TaskStatus;
 use App\Events\CommentMentioned;
 use App\Events\TaskAssigned;
 use App\Events\TaskCompleted;
+use App\Exceptions\SyncConflictException;
+use App\Models\Meeting;
 use App\Models\Task;
 use App\Models\TaskAttachment;
 use App\Models\TaskCandidate;
@@ -17,9 +19,11 @@ use App\Models\Workspace;
 use App\Repositories\Contracts\TaskAttachmentRepositoryInterface;
 use App\Repositories\Contracts\TaskCommentRepositoryInterface;
 use App\Repositories\Contracts\TaskRepositoryInterface;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 
 class TaskService
 {
@@ -35,11 +39,38 @@ class TaskService
         return $this->tasks->forUser($user, $filters, $perPage);
     }
 
+    /**
+     * @param array{client_ref?: ?string} $data
+     */
     public function create(User $creator, Workspace $workspace, array $data): Task
     {
+        // Phase 10 idempotency — see the identical block's comment in
+        // update(): a client_ref that already exists means this
+        // offline-queued "create" already landed on a prior attempt.
+        if (! empty($data['client_ref'])) {
+            $existing = $this->tasks->findByClientRef($workspace, $data['client_ref']);
+            if ($existing) {
+                return $existing->fresh(['assignee', 'creator']);
+            }
+        }
+
+        // Phase 11 hardening: StoreTaskRequest/ConfirmTaskCandidateRequest
+        // only check that `meeting_id`/`assigned_user_id` reference *some*
+        // real row (`exists:meetings,id` / `exists:users,id`) — neither
+        // confirms the row belongs to *this* workspace. Without this,
+        // a workspace member could link a task to a meeting from a
+        // workspace they have no access to (leaking that meeting's title
+        // via TaskResource::meeting_title), or assign a task to a user
+        // who isn't even a member. Enforced here, centrally, so every
+        // caller (direct create, AI task-candidate confirmation) is
+        // covered without duplicating the check per entry point.
+        $this->assertMeetingBelongsToWorkspace($workspace, $data['meeting_id'] ?? null);
+        $this->assertAssigneeIsWorkspaceMember($workspace, $data['assigned_user_id'] ?? null);
+
         $task = $this->tasks->create([
             'workspace_id' => $workspace->id,
             'created_by' => $creator->id,
+            'client_ref' => $data['client_ref'] ?? null,
             'meeting_id' => $data['meeting_id'] ?? null,
             'assigned_user_id' => $data['assigned_user_id'] ?? null,
             'title' => $data['title'],
@@ -60,8 +91,17 @@ class TaskService
         return $task->fresh(['assignee', 'creator']);
     }
 
+    /**
+     * @param array{client_updated_at?: ?string} $data
+     *
+     * @throws SyncConflictException if `client_updated_at` no longer matches the record
+     * @throws ValidationException if `meeting_id` doesn't belong to the task's workspace
+     */
     public function update(Task $task, array $data): Task
     {
+        $this->guardAgainstConflict($task, $data);
+        $this->assertMeetingBelongsToWorkspace($task->workspace, $data['meeting_id'] ?? null);
+
         return $this->tasks->update($task, collect($data)
             ->only(['title', 'description', 'priority', 'deadline', 'meeting_id'])
             ->toArray());
@@ -101,8 +141,13 @@ class TaskService
         return $this->tasks->update($task, ['progress' => max(0, min(100, $progress))]);
     }
 
+    /**
+     * @throws ValidationException if $assignee isn't a member of the task's workspace
+     */
     public function assign(Task $task, ?User $assignee, User $assignedBy): Task
     {
+        $this->assertAssigneeIsWorkspaceMember($task->workspace, $assignee?->id);
+
         $task = $this->tasks->update($task, ['assigned_user_id' => $assignee?->id]);
 
         if ($assignee) {
@@ -176,7 +221,9 @@ class TaskService
     /**
      * FR-6.3: turn an AI-suggested candidate into a real, manageable Task.
      * Any field in $overrides replaces the candidate's suggestion — the
-     * human reviewing it can correct the AI before confirming.
+     * human reviewing it can correct the AI before confirming. Routes
+     * through create() above, so the same workspace-membership/meeting
+     * guards apply automatically to an admin-overridden assignee too.
      */
     public function confirmCandidate(TaskCandidate $candidate, User $confirmedBy, array $overrides = []): Task
     {
@@ -195,5 +242,67 @@ class TaskService
         ]);
 
         return $task;
+    }
+
+    /**
+     * Phase 10 optimistic concurrency — see MeetingService::
+     * guardAgainstConflict() for the identical reasoning. Task edits are
+     * the case ARCHITECTURE.md 2.3 calls out by name ("a manual merge
+     * prompt for conflicting task edits").
+     */
+    private function guardAgainstConflict(Task $task, array $data): void
+    {
+        if (empty($data['client_updated_at'])) {
+            return;
+        }
+
+        $clientKnownAt = Carbon::parse($data['client_updated_at'])->startOfSecond();
+        $serverAt = $task->updated_at->copy()->startOfSecond();
+
+        if (! $serverAt->equalTo($clientKnownAt)) {
+            throw new SyncConflictException($task);
+        }
+    }
+
+    /**
+     * Phase 11 hardening — see the comment in create() for why this
+     * exists. A no-op when $meetingId is null (a manually-created task
+     * with no linked meeting, or an update that doesn't touch meeting_id).
+     */
+    private function assertMeetingBelongsToWorkspace(Workspace $workspace, ?int $meetingId): void
+    {
+        if ($meetingId === null) {
+            return;
+        }
+
+        $belongs = Meeting::query()
+            ->where('id', $meetingId)
+            ->where('workspace_id', $workspace->id)
+            ->exists();
+
+        if (! $belongs) {
+            throw ValidationException::withMessages([
+                'meeting_id' => ['The selected meeting does not belong to this workspace.'],
+            ]);
+        }
+    }
+
+    /**
+     * Phase 11 hardening — see the comment in create() for why this
+     * exists. A no-op when $assignedUserId is null (unassigned).
+     */
+    private function assertAssigneeIsWorkspaceMember(Workspace $workspace, ?int $assignedUserId): void
+    {
+        if ($assignedUserId === null) {
+            return;
+        }
+
+        $isMember = $workspace->members()->where('users.id', $assignedUserId)->exists();
+
+        if (! $isMember) {
+            throw ValidationException::withMessages([
+                'assigned_user_id' => ['The assignee must be a member of this workspace.'],
+            ]);
+        }
     }
 }

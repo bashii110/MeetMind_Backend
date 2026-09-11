@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\TaskStatus;
+use App\Exceptions\SyncConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Task\AssignTaskRequest;
 use App\Http\Requests\Task\StoreTaskAttachmentRequest;
@@ -76,7 +77,18 @@ class TaskController extends Controller
     {
         $this->authorize('update', $task);
 
-        $task = $this->tasks->update($task, $request->validated());
+        try {
+            $task = $this->tasks->update($task, $request->validated());
+        } catch (SyncConflictException $e) {
+            // Phase 10: someone else changed this task since the client's
+            // local cache last synced. Hand back the current server copy
+            // (409) so the app can show a manual merge prompt instead of
+            // silently losing either edit.
+            return response()->json([
+                'message' => 'This task was modified since your last sync.',
+                'data' => new TaskResource($e->current->fresh()),
+            ], 409);
+        }
 
         return $this->success(new TaskResource($task), 'Task updated.');
     }
@@ -141,6 +153,15 @@ class TaskController extends Controller
     {
         $this->authorize('view', $task);
 
+        // Phase 11 IDOR fix: $comment was previously resolved purely by
+        // its own route-bound ID, independent of $task — a caller could
+        // pass any task they can view alongside *any* comment ID and, as
+        // long as it happened to be their own comment, delete it without
+        // it actually belonging to that task. Not privilege escalation
+        // (the ownership check below still applies), but wrong REST
+        // semantics that this closes off outright.
+        abort_if($comment->task_id !== $task->id, 404);
+
         if ($comment->user_id !== $request->user()->id) {
             return $this->error('You can only delete your own comments.', 403);
         }
@@ -163,6 +184,15 @@ class TaskController extends Controller
     public function destroyAttachment(Task $task, TaskAttachment $attachment): JsonResponse
     {
         $this->authorize('update', $task);
+
+        // Phase 11 IDOR fix: this previously authorized only against
+        // $task (the one in the URL) and never checked that $attachment
+        // actually belonged to it. Anyone with "update" rights on *any*
+        // task of theirs could delete an attachment on a *different*
+        // task — including one in a workspace they have no access to —
+        // simply by guessing/incrementing the attachment ID. This closes
+        // that off; see tests/Feature/Security/TaskIdorTest.php.
+        abort_if($attachment->task_id !== $task->id, 404);
 
         $this->tasks->removeAttachment($attachment);
 

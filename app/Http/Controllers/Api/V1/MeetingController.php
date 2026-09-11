@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\MeetingStatus;
 use App\Enums\ParticipantInviteStatus;
+use App\Exceptions\SyncConflictException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Meeting\InviteParticipantsRequest;
 use App\Http\Requests\Meeting\RespondToInvitationRequest;
@@ -71,7 +72,18 @@ class MeetingController extends Controller
     {
         $this->authorize('update', $meeting);
 
-        $meeting = $this->meetings->update($meeting, $request->validated());
+        try {
+            $meeting = $this->meetings->update($meeting, $request->validated());
+        } catch (SyncConflictException $e) {
+            // Phase 10: someone else changed this meeting since the
+            // client's local cache last synced. Hand back the current
+            // server copy (409) so the app can show a manual merge
+            // prompt instead of silently losing either edit.
+            return response()->json([
+                'message' => 'This meeting was modified since your last sync.',
+                'data' => new MeetingResource($e->current->fresh(['owner', 'tags', 'participants.user'])),
+            ], 409);
+        }
 
         return $this->success(new MeetingResource($meeting), 'Meeting updated.');
     }

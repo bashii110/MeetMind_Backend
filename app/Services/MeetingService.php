@@ -6,11 +6,13 @@ use App\Enums\ActivityAction;
 use App\Enums\MeetingStatus;
 use App\Enums\ParticipantInviteStatus;
 use App\Events\ParticipantInvited;
+use App\Exceptions\SyncConflictException;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Repositories\Contracts\MeetingRepositoryInterface;
 use App\Repositories\Contracts\TagRepositoryInterface;
+use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Validation\ValidationException;
 
@@ -28,13 +30,26 @@ class MeetingService
     }
 
     /**
-     * @param array{tags?: array<string>, participant_emails?: array<string>} $data
+     * @param array{tags?: array<string>, participant_emails?: array<string>, client_ref?: ?string} $data
      */
     public function create(User $owner, Workspace $workspace, array $data): Meeting
     {
+        // Phase 10 idempotency: a client_ref that already exists means
+        // this exact offline-queued "create" was already applied on a
+        // previous attempt (e.g. the app was killed before it saw the
+        // response) — return the existing record rather than duplicating
+        // it. See ARCHITECTURE.md 2.3's outbox pattern.
+        if (! empty($data['client_ref'])) {
+            $existing = $this->meetings->findByClientRef($workspace, $data['client_ref']);
+            if ($existing) {
+                return $existing->fresh(['owner', 'tags', 'participants.user']);
+            }
+        }
+
         $meeting = $this->meetings->create([
             'workspace_id' => $workspace->id,
             'owner_id' => $owner->id,
+            'client_ref' => $data['client_ref'] ?? null,
             'title' => $data['title'],
             'description' => $data['description'] ?? null,
             'date' => $data['date'],
@@ -61,8 +76,15 @@ class MeetingService
         return $meeting->fresh(['owner', 'tags', 'participants.user']);
     }
 
+    /**
+     * @param array{client_updated_at?: ?string} $data
+     *
+     * @throws SyncConflictException if `client_updated_at` no longer matches the record
+     */
     public function update(Meeting $meeting, array $data): Meeting
     {
+        $this->guardAgainstConflict($meeting, $data);
+
         $attributes = collect($data)
             ->only([
                 'title', 'description', 'date', 'time', 'location',
@@ -155,5 +177,28 @@ class MeetingService
             ->map(fn (string $name) => $this->tags->findOrCreate($workspace, $name)->id);
 
         $meeting->tags()->sync($tagIds);
+    }
+
+    /**
+     * Phase 10 optimistic concurrency: if the caller sends
+     * `client_updated_at` (the `updated_at` their local cache last saw),
+     * and the record has since changed server-side, this throws instead
+     * of silently overwriting someone else's edit — ARCHITECTURE.md 2.3's
+     * "manual merge prompt for conflicting task edits" applies equally to
+     * meetings. Callers that don't send `client_updated_at` (e.g. an
+     * always-online web admin) skip this check entirely.
+     */
+    private function guardAgainstConflict(Meeting $meeting, array $data): void
+    {
+        if (empty($data['client_updated_at'])) {
+            return;
+        }
+
+        $clientKnownAt = Carbon::parse($data['client_updated_at'])->startOfSecond();
+        $serverAt = $meeting->updated_at->copy()->startOfSecond();
+
+        if (! $serverAt->equalTo($clientKnownAt)) {
+            throw new SyncConflictException($meeting);
+        }
     }
 }

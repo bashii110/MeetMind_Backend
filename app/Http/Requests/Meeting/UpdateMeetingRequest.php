@@ -14,6 +14,13 @@ class UpdateMeetingRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // Phase 10: the `updated_at` this client's local cache last
+            // saw for this meeting. If it no longer matches the server's
+            // current value, MeetingService::update() throws a
+            // SyncConflictException instead of silently overwriting a
+            // change made elsewhere in the meantime. Omit this field
+            // entirely to skip the check (e.g. a normal always-online edit).
+            'client_updated_at' => ['sometimes', 'nullable', 'date'],
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'date' => ['sometimes', 'date'],

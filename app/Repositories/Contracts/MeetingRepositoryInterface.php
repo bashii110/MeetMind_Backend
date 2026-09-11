@@ -2,7 +2,9 @@
 
 namespace App\Repositories\Contracts;
 
+use App\Models\Meeting;
 use App\Models\User;
+use App\Models\Workspace;
 use Carbon\CarbonInterface;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -29,4 +31,12 @@ interface MeetingRepositoryInterface extends RepositoryInterface
      * already been reminded about — used by meetings:send-reminders.
      */
     public function dueForReminder(): Collection;
+
+    /**
+     * Phase 10: looks up a meeting by the client-generated idempotency
+     * key sent on creation, including soft-deleted rows — lets
+     * MeetingService::create() detect a replayed offline-outbox "create"
+     * and return the existing record instead of duplicating it.
+     */
+    public function findByClientRef(Workspace $workspace, string $clientRef): ?Meeting;
 }
